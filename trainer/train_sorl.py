@@ -79,12 +79,42 @@ def train(args):
     logger(f"Model initialized with {sum(p.numel() for p in model.parameters())/1e6:.2f}M parameters.")
 
     # 3. Setup SORL Config, Optimizer, and Schedulers
+    # This now correctly maps all relevant arguments from the command line
+    # to the SORL configuration object.
     sorl_config = SORLConfig(
-        n=args.n_rollout, temperature=args.temperature, K=args.K, l=1, 
-        steps=args.denoise_steps, max_t_search=args.max_t_search,
-        use_rhythmic_placeholders=True, use_spike_placeholders=False,
-        max_length=train_loader.max_length, train_iterations=args.train_iterations,
-        curriculum_ratio=0.8
+        n=args.n_rollout,
+        temperature=args.temperature,
+        K=args.K,
+        l=1,  # Target abstraction level is currently fixed at 1
+        steps=args.denoise_steps,
+        max_t_search=args.max_t_search,
+        
+        # Placeholders
+        use_rhythmic_placeholders=args.use_rhythmic_placeholders,
+        use_spike_placeholders=args.use_spike_placeholders,
+        abstract_budget=args.abstract_budget,
+
+        # Stability strategies
+        temperature_flip=args.temperature_flip,
+        
+        # Curriculum and Memory
+        curriculum_ratio=args.curriculum_ratio,
+        use_fade_memory=args.use_fade_memory,
+        min_keep=args.memory_span,
+        max_seq_len=train_loader.max_length,
+        
+        # Dataset and Run Config
+        train_dataset_path=args.train_data_path,
+        val_dataset_path=args.val_data_path,
+        train_batch_size=args.batch_size,
+        val_batch_size=args.batch_size,
+        train_iterations=args.train_iterations,
+        val_iterations=args.val_iterations,
+        max_length=train_loader.max_length,
+
+        # Optimization
+        learning_rate=args.learning_rate,
+        log_interval=args.log_interval
     )
     
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
@@ -100,6 +130,9 @@ def train(args):
     model.train()
     for i in range(args.train_iterations):
         global_step = i
+
+        if args.temperature_flip:
+            sorl_config.temperature = args.temperature if i % 2 != 0 else 0.0
 
         t_search = search_scheduler.step()
         sorl_config.max_t_search = t_search
@@ -152,13 +185,26 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--val_iterations", type=int, default=10, help="Number of validation batches to run.")
+    
     # SORL Config
-    parser.add_argument("--n_rollout", type=int, default=4)
-    parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--n_rollout", type=int, default=4, help="Number of candidates to roll out.")
+    parser.add_argument("--temperature", type=float, default=1.0, help="Temperature for stochastic rollout.")
+    parser.add_argument("--temperature_flip", action="store_true", help="Alternate temperature between 0.0 and the specified value.")
     parser.add_argument("--K", type=int, default=8, help="Rhythmic stride for abstraction.")
-    parser.add_argument("--denoise_steps", type=int, default=4)
-    parser.add_argument("--max_t_search", type=int, default=64)
-    parser.add_argument("--memory_span", type=int, default=1024)
+    parser.add_argument("--denoise_steps", type=int, default=4, help="Steps for chunk-wise denoising.")
+    parser.add_argument("--curriculum_ratio", type=float, default=0.6, help="Ratio of curriculum iterations for t_search.")
+    parser.add_argument("--max_t_search", type=int, default=1024, help="Max number of abstract timestamps to search within.")
+    
+    # Placeholder types
+    parser.add_argument("--use_rhythmic_placeholders", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--use_spike_placeholders", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--abstract_budget", type=int, default=5, help="Max number of spiky abstractions allowed.")
+
+    # Memory fading
+    parser.add_argument("--memory_span", type=int, default=1024, help="Min # of vivid tokens to keep in memory (used for min_keep).")
+    parser.add_argument("--use_fade_memory", action="store_true", help="Enable memory fading during training.")
+    
     # Logging
     parser.add_argument("--log_interval", type=int, default=100)
     parser.add_argument("--use_wandb", action="store_true")

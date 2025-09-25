@@ -48,6 +48,7 @@ class SORLConfig:
     abstract_budget: int = 5 # max number of spiky abstraction allowed
     use_rhythmic_placeholders: bool = True # whether to use rhythmic placeholders
     use_spike_placeholders: bool = True # whether to use spike placeholders
+    temperature_flip: bool = False # Whether to alternate temperature between 0.0 and the specified value
 
     # incremental abstraction search 
     curriculum_ratio: float = 0.6 # ratio of curriculum iterations (after this total_step * ratio, abstraction is full-length)
