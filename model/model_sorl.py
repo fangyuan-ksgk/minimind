@@ -1,8 +1,8 @@
 import torch
 import torch.nn.functional as F
 from typing import Optional, List, Tuple
-from transformers import PreTrainedModel, LogitsProcessor, AutoModelForCausalLM, GenerationMixin, Qwen2ForCausalLM, Qwen2Config
-
+from transformers import Qwen2ForCausalLM, Qwen2Config
+from transformers.cache_utils import DynamicCache
 from model.model_minimind import MiniMindForCausalLM, MiniMindConfig
 
 # --------------------------------------------------------------------------------------------------#
@@ -22,25 +22,54 @@ def infer_level(indices: torch.Tensor, vocab_sizes: torch.Tensor, pad_token: int
     final_levels = torch.where(padding_mask, -1, levels.long())
     return final_levels
 
-def memory_pruning(current_pkv: tuple, levels_cache: torch.Tensor, generated_ids: torch.Tensor, memory_span: int): 
+def memory_pruning(current_pkv, levels_cache: torch.Tensor, generated_ids: torch.Tensor, memory_span: int):
+    """
+    Prunes the KV cache, levels cache, and generated IDs based on a memory span and token abstraction level.
+    This function handles both tuple-based KV caches (e.g., MiniMind) and DynamicCache objects (e.g., Qwen2).
+    """
+    seq_len = levels_cache.shape[1]
+    device = levels_cache.device
 
-        assert current_pkv[0][0].shape[1] == levels_cache.shape[1], "CRITICAL: State mismatch before pruning!"
-        assert generated_ids.shape[1] == levels_cache.shape[1], "CRITICAL: Generated IDs mismatch before pruning!"
-        seq_len = levels_cache.shape[1]
-        device = levels_cache.device
-        is_recent = torch.arange(seq_len, device=device) >= (seq_len - memory_span)
-        is_high_level = (levels_cache > 0).squeeze(0)
+    # Determine which indices to keep
+    is_recent = torch.arange(seq_len, device=device) >= (seq_len - memory_span)
+    is_high_level = (levels_cache > 0).squeeze(0)
+    keep_mask = is_recent | is_high_level
+    keep_indices = torch.where(keep_mask)[0]
 
-        keep_mask = is_recent | is_high_level
-        keep_indices = torch.where(keep_mask)[0]
+    # Prune level and ID caches first
+    pruned_levels_cache = levels_cache[:, keep_indices]
+    pruned_generated_ids = generated_ids[:, keep_indices]
+
+    # Prune the KV cache based on its type
+    if isinstance(current_pkv, DynamicCache):
+        # Handle DynamicCache by deconstructing, pruning, and reconstructing.
+        # This is the robust way to handle HF cache objects.
+        assert current_pkv[0][0].shape[2] == seq_len, "CRITICAL: State mismatch before pruning!"
+        
+        pruned_layers = []
+        for k_layer, v_layer in current_pkv:
+            # HF cache shape: [batch, num_heads, seq_len, head_dim] -> prune dim 2
+            pruned_k = k_layer[:, :, keep_indices, :]
+            pruned_v = v_layer[:, :, keep_indices, :]
+            pruned_layers.append((pruned_k, pruned_v))
+        
+        pruned_pkv = DynamicCache.from_legacy_cache(past_key_values=tuple(pruned_layers))
+
+    elif isinstance(current_pkv, tuple) or isinstance(current_pkv, list):
+        # Handle the original tuple-based KV caches (used by MiniMind)
+        assert current_pkv[0][0].shape[1] == seq_len, "CRITICAL: State mismatch before pruning!"
         
         pruned_pkv_list = []
         for k, v in current_pkv:
+            # MiniMind cache shape: [batch, seq_len, num_heads, head_dim] -> prune dim 1
             pruned_k = k[:, keep_indices, :, :]
             pruned_v = v[:, keep_indices, :, :]
             pruned_pkv_list.append((pruned_k, pruned_v))
+        pruned_pkv = tuple(pruned_pkv_list)
+    else:
+        raise TypeError(f"Unsupported KV cache type for pruning: {type(current_pkv)}")
 
-        return tuple(pruned_pkv_list), levels_cache[:, keep_indices], generated_ids[:, keep_indices]
+    return pruned_pkv, pruned_levels_cache, pruned_generated_ids
 
 
 # --------------------------------------------------------------------------------------------------#
@@ -101,7 +130,7 @@ class SorlModelWrapper:
         if attention_mask is not None:
             sorl_causal_mask = sorl_causal_mask & attention_mask.unsqueeze(1).unsqueeze(2)
         final_attention_mask = sorl_causal_mask.unsqueeze(1)
-        
+
         return self.model.forward(input_ids=input_ids, attention_mask=final_attention_mask, **kwargs)
 
 
@@ -203,9 +232,12 @@ class SorlModelWrapper:
     def denoise(self, idx: torch.Tensor, denoise_mask: torch.Tensor, denoise_levels: torch.Tensor, temperature: float = 0.0): 
         self.model.eval()
         with torch.no_grad():
-            outputs = self.forward(input_ids=idx, use_cache=False, attention_mask=None)
-            hidden_states = outputs.last_hidden_state
-
+            if self.model_type == "minimind":
+                outputs = self.forward(input_ids=idx, use_cache=False, attention_mask=None)
+                hidden_states = outputs.last_hidden_state
+            else: 
+                outputs = self.forward(input_ids=idx, use_cache=False, attention_mask=None, output_hidden_states=True)
+                hidden_states = outputs.hidden_states[-1]
             rep_mask = torch.roll(denoise_mask, -1, dims=1)
             new_tokens = self._parallel_decode(self.model.lm_head(hidden_states[rep_mask]), levels=denoise_levels, temperature=temperature)
             denoised_idx = idx.clone()
