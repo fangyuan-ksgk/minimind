@@ -8,23 +8,23 @@
 
 import wandb, torch
 from dataset.base import BaseDataset
-from src.gat import GAT
-from src.sorl import SORLConfig, sorl_search, compute_loss, evaluate, SearchScheduler
+from model.model_sorl import SorlModelWrapper
+from src.sorl import SORLConfig, sorl_search, compute_loss, evaluate, SearchScheduler, compute_per_token_loss
 from dataset.base import get_batch
 
 
 # Validation loop
 # ------------------------------------------------------------------------------------------------
-def validate(val_dataset: BaseDataset, gat: GAT,  config: SORLConfig): 
+def validate(val_dataset: BaseDataset, model: SorlModelWrapper,  config: SORLConfig): 
 
     total_improve_ppl = 0.0
     total_traj_ppl = 0.0
 
     num_iterations = max(1, config.val_iterations)
     for _ in range(num_iterations): 
-        val_data = get_batch(val_dataset, config.val_batch_size, config.max_length, gat.level_mask_tokens[0], device=gat.device)
+        val_data = get_batch(val_dataset, config.val_batch_size, config.max_length, model.level_mask_tokens[0], device=model.model.device)
         with torch.no_grad(): 
-            improve_ppl, traj_ppl, greedy_str, vocab_utilization_rate = evaluate(val_data, gat, 5, config)
+            improve_ppl, traj_ppl, greedy_str, vocab_utilization_rate = evaluate(val_data, model, 5, config)
             total_improve_ppl += improve_ppl
             total_traj_ppl += traj_ppl
         del val_data
@@ -36,32 +36,32 @@ def validate(val_dataset: BaseDataset, gat: GAT,  config: SORLConfig):
 
 # Self organizing reinforcement learning (SoRL)
 # ------------------------------------------------------------------------------------------------
-def self_organizing_reinforcement_learning(train_dataset: BaseDataset, val_dataset: BaseDataset, gat: GAT, config: SORLConfig, start_step: int = 0): 
+def self_organizing_reinforcement_learning(train_dataset: BaseDataset, val_dataset: BaseDataset, model: SorlModelWrapper, config: SORLConfig, start_step: int = 0): 
     
-    optimizer = torch.optim.Adam(gat.parameters(), lr=config.learning_rate)
-    scheduler = SearchScheduler(config, gat.K)
+    optimizer = torch.optim.Adam(model.model.parameters(), lr=config.learning_rate)
+    scheduler = SearchScheduler(config)
 
     for i in range(config.train_iterations):
         # config.temperature = 0.0 if i % 2 == 0 else 1.0
         global_step = start_step + i
-        gat.train() 
+        model.model.train() 
 
         t_search = scheduler.step()
         config.max_t_search = t_search
-        gat.memory_span = scheduler.memory_span # memory fading
+        model.memory_span = scheduler.memory_span # memory fading
 
-        data = get_batch(train_dataset, config.train_batch_size, config.max_length, gat.level_mask_tokens[0], device=gat.device)
+        data = get_batch(train_dataset, config.train_batch_size, config.max_length, model.level_mask_tokens[0], device=model.model.device)
 
         with torch.no_grad(): 
 
-            search_data, switch_ratio = sorl_search(data, gat, config)
+            search_data, switch_ratio = sorl_search(data, model, config)
             
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         
-        ppt = gat(search_data[:, :-1].contiguous(), target=search_data[:, 1:].contiguous())
+        ppt = compute_per_token_loss(model, search_data)
 
-        ssl_loss, abs_loss = compute_loss(search_data, gat, ppt)
+        ssl_loss, abs_loss = compute_loss(search_data, model, ppt)
         loss = abs_loss + ssl_loss
 
         optimizer.zero_grad()
@@ -74,11 +74,11 @@ def self_organizing_reinforcement_learning(train_dataset: BaseDataset, val_datas
         if global_step % config.log_interval == 0 and global_step > 0:
             
             # Validation needs to be more rigorous : more samples
-            gat.eval()
+            model.model.eval()
 
             with torch.no_grad(): 
-                _, improve_ppl_train, _, _ = evaluate(data, gat, 5, config)
-                validate_improve_ppl, validate_traj_ppl, validate_greedy_str, validate_vocab_utilization_rate = validate(val_dataset, gat, config)
+                _, improve_ppl_train, _, _ = evaluate(data, model, 5, config)
+                validate_improve_ppl, validate_traj_ppl, validate_greedy_str, validate_vocab_utilization_rate = validate(val_dataset, model, config)
 
             
             wandb.log({
@@ -96,12 +96,12 @@ def self_organizing_reinforcement_learning(train_dataset: BaseDataset, val_datas
                 f"progress/t_search": t_search, 
             }, step=global_step)
 
-            gat.train()
+            model.model.train()
 
         print(f"Iteration {i+1}/{config.train_iterations} "
-                            f"- loss: {loss.item():.4f}, abs_loss: {abs_loss.item():.4f}, ssl_loss: {ssl_loss.item():.4f}, t_search: {t_search}, memory_span: {gat.memory_span}")
+                            f"- loss: {loss.item():.4f}, abs_loss: {abs_loss.item():.4f}, ssl_loss: {ssl_loss.item():.4f}, t_search: {t_search}, memory_span: {model.memory_span}")
 
 
         del loss, abs_loss, ssl_loss, ppt
 
-    return gat, start_step + config.train_iterations
+    return model, start_step + config.train_iterations
