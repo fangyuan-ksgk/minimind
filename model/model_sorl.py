@@ -1,8 +1,9 @@
 import torch
 import torch.nn.functional as F
 from typing import Optional, List, Tuple
-from transformers import Qwen2ForCausalLM, Qwen2Config
+from transformers import PreTrainedModel, GenerationMixin, Qwen2ForCausalLM, Qwen2Config, PretrainedConfig, AutoConfig
 from transformers.cache_utils import DynamicCache
+
 from model.model_minimind import MiniMindForCausalLM, MiniMindConfig
 
 # --------------------------------------------------------------------------------------------------#
@@ -30,25 +31,19 @@ def memory_pruning(current_pkv, levels_cache: torch.Tensor, generated_ids: torch
     seq_len = levels_cache.shape[1]
     device = levels_cache.device
 
-    # Determine which indices to keep
     is_recent = torch.arange(seq_len, device=device) >= (seq_len - memory_span)
     is_high_level = (levels_cache > 0).squeeze(0)
     keep_mask = is_recent | is_high_level
     keep_indices = torch.where(keep_mask)[0]
 
-    # Prune level and ID caches first
     pruned_levels_cache = levels_cache[:, keep_indices]
     pruned_generated_ids = generated_ids[:, keep_indices]
 
-    # Prune the KV cache based on its type
     if isinstance(current_pkv, DynamicCache):
-        # Handle DynamicCache by deconstructing, pruning, and reconstructing.
-        # This is the robust way to handle HF cache objects.
         assert current_pkv[0][0].shape[2] == seq_len, "CRITICAL: State mismatch before pruning!"
         
         pruned_layers = []
         for k_layer, v_layer in current_pkv:
-            # HF cache shape: [batch, num_heads, seq_len, head_dim] -> prune dim 2
             pruned_k = k_layer[:, :, keep_indices, :]
             pruned_v = v_layer[:, :, keep_indices, :]
             pruned_layers.append((pruned_k, pruned_v))
@@ -56,12 +51,10 @@ def memory_pruning(current_pkv, levels_cache: torch.Tensor, generated_ids: torch
         pruned_pkv = DynamicCache.from_legacy_cache(past_key_values=tuple(pruned_layers))
 
     elif isinstance(current_pkv, tuple) or isinstance(current_pkv, list):
-        # Handle the original tuple-based KV caches (used by MiniMind)
         assert current_pkv[0][0].shape[1] == seq_len, "CRITICAL: State mismatch before pruning!"
         
         pruned_pkv_list = []
         for k, v in current_pkv:
-            # MiniMind cache shape: [batch, seq_len, num_heads, head_dim] -> prune dim 1
             pruned_k = k[:, keep_indices, :, :]
             pruned_v = v[:, keep_indices, :, :]
             pruned_pkv_list.append((pruned_k, pruned_v))
@@ -75,43 +68,64 @@ def memory_pruning(current_pkv, levels_cache: torch.Tensor, generated_ids: torch
 # --------------------------------------------------------------------------------------------------#
 #                                       SORL Model Wrapper
 #---------------------------------------------------------------------------------------------------#
-from transformers import PretrainedConfig, AutoConfig
 
 SUPPORTED_MODELS = {
     "minimind": (MiniMindForCausalLM, MiniMindConfig),
     "qwen2": (Qwen2ForCausalLM, Qwen2Config),
 }
 
-class SorlModelWrapper:
-    def __init__(self, config: PretrainedConfig, full_vocab_size_list: List[int], memory_span: int):
+# By inheriting from PreTrainedModel, the wrapper gains methods like .to(), .eval(), .train(),
+# and becomes a proper PyTorch nn.Module that can be managed easily.
+class SorlModelWrapper(PreTrainedModel, GenerationMixin):
+    config_class = PretrainedConfig
+
+    def __init__(self, config: PretrainedConfig):
+        super().__init__(config)
+        
         model_type = getattr(config, "model_type", None)
         if model_type not in SUPPORTED_MODELS:
             raise ValueError(f"Unsupported model type: {model_type}")
+        
         self.model_type = model_type
-        ModelClass, ConfigClass = SUPPORTED_MODELS[model_type]
-        self.config = ConfigClass(**config.to_dict())
-        self.model = ModelClass(self.config)
-        self.memory_span = memory_span
-        self.full_vocab_size_list = full_vocab_size_list
-        self._setup_vocabulary()
-        new_total_vocab_size = self.total_vocab_size.item()
-        self.model.resize_token_embeddings(new_total_vocab_size)
-
+        ModelClass, _ = SUPPORTED_MODELS[model_type]
+        
+        self.model = ModelClass(config)
+        self.memory_span = None
+        self.full_vocab_size_list = None
+        self.pad_token_id = None
+    
     @classmethod
-    def from_pretrained(cls, model_name_or_path: str, abstract_vocab_size_list: List[int], memory_span: int) -> "SorlModelWrapper":
-        config = AutoConfig.from_pretrained(model_name_or_path)
+    def from_pretrained(cls, model_name_or_path: str, abstract_vocab_size_list: List[int], memory_span: int, pad_token_id: int, **kwargs) -> "SorlModelWrapper":
+        config = AutoConfig.from_pretrained(model_name_or_path, **kwargs)
+        wrapper = cls(config)
+        wrapper.model = wrapper.model.__class__.from_pretrained(model_name_or_path, **kwargs)
+
+        wrapper.memory_span = memory_span
+        wrapper.pad_token_id = pad_token_id
         base_vocab_size = config.vocab_size
-        full_vocab_size_list = [base_vocab_size] + abstract_vocab_size_list
-        
-        wrapper = cls(config, full_vocab_size_list, memory_span)
-        
-        wrapper.model = wrapper.model.__class__.from_pretrained(model_name_or_path)
+        wrapper.full_vocab_size_list = [base_vocab_size] + abstract_vocab_size_list
+        wrapper._setup_vocabulary()
         
         new_total_vocab_size = wrapper.total_vocab_size.item()
         if wrapper.model.config.vocab_size != new_total_vocab_size:
             wrapper.model.resize_token_embeddings(new_total_vocab_size)
             wrapper.model.config.vocab_size = new_total_vocab_size
+            wrapper.config.vocab_size = new_total_vocab_size
 
+        return wrapper
+    
+    @classmethod
+    def from_scratch(cls, config: PretrainedConfig, full_vocab_size_list: List[int], memory_span: int, pad_token_id: int) -> "SorlModelWrapper":
+        """A custom initializer for creating a SORL model from scratch."""
+        wrapper = cls(config)
+        wrapper.memory_span = memory_span
+        wrapper.pad_token_id = pad_token_id
+        wrapper.full_vocab_size_list = full_vocab_size_list
+        wrapper._setup_vocabulary()
+        
+        new_total_vocab_size = wrapper.total_vocab_size.item()
+        wrapper.model.resize_token_embeddings(new_total_vocab_size)
+        wrapper.config.vocab_size = new_total_vocab_size
         return wrapper
 
     def forward(self, input_ids, attention_mask=None, **kwargs):
@@ -145,14 +159,30 @@ class SorlModelWrapper:
         }
 
     def _setup_vocabulary(self):
-        device = self.model.device
-        # (TBD). special case when there are a pre-assigned pad token for the first level
-        self.vocab_sizes = torch.tensor(self.full_vocab_size_list).to(device) + 1
-        self.total_vocab_size = self.vocab_sizes.sum()
+        device = self.device
         
+        base_vocab_size = self.full_vocab_size_list[0]
+        abstract_vocab_sizes = self.full_vocab_size_list[1:]
+
+        vocab_sizes_list = [base_vocab_size] + [size + 1 for size in abstract_vocab_sizes]
+        self.vocab_sizes = torch.tensor(vocab_sizes_list, device=device)
+
+        self.total_vocab_size = self.vocab_sizes.sum()
         self.level_vocab_ends = self.vocab_sizes.cumsum(dim=0)
         self.level_vocab_starts = torch.cat([torch.tensor([0], device=device), self.level_vocab_ends[:-1]])
-        self.level_mask_tokens = self.level_vocab_ends - 1
+
+        l0_mask_token = torch.tensor([self.pad_token_id], device=device, dtype=torch.long)
+        
+        if len(self.vocab_sizes) > 1:
+            abstract_mask_tokens = (self.level_vocab_ends - 1)[1:]
+            self.level_mask_tokens = torch.cat([l0_mask_token, abstract_mask_tokens])
+        else:
+            self.level_mask_tokens = l0_mask_token
+
+        self.l0_mask = torch.zeros(self.total_vocab_size, dtype=torch.bool, device=device)
+        self.l0_mask[:self.vocab_sizes[0]] = True
+        self.abs_mask = ~self.l0_mask
+        self.abs_mask[self.level_mask_tokens[1:]] = False
 
     @torch.no_grad()
     def generate(
@@ -165,10 +195,6 @@ class SorlModelWrapper:
     ):
 
         self.model.eval()
-        device = self.model.device
-
-        l0_mask = torch.zeros(self.model.vocab_size, dtype=torch.bool, device=device)
-        l0_mask[:self.vocab_sizes[0]] = True
 
         generated_ids = input_ids.clone()
         past_key_values = None
@@ -186,9 +212,9 @@ class SorlModelWrapper:
             past_key_values, levels_cache, generated_ids = memory_pruning(current_pkv, levels_cache, generated_ids, 5)
 
             if force_abstraction_every_n is not None and (step + 1) % force_abstraction_every_n == 0:
-                next_token_logits.masked_fill_(l0_mask, -float("inf"))
+                next_token_logits.masked_fill_(self.l0_mask, -float("inf"))
             else: 
-                next_token_logits.masked_fill_(~l0_mask, -float("inf"))
+                next_token_logits.masked_fill_(self.abs_mask, -float("inf"))
 
             if temperature > 0:
                 probs = F.softmax(next_token_logits / temperature, dim=-1)

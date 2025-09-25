@@ -9,11 +9,12 @@ import torch
 from sklearn.model_selection import train_test_split
 import os
 import ast
+from dataset.base import SavableDataset
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-class PretrainDataset(Dataset):
+class PretrainDataset(SavableDataset):
     def __init__(self, data_path, tokenizer, max_length=512):
         super().__init__()
         self.tokenizer = tokenizer
@@ -45,20 +46,25 @@ class PretrainDataset(Dataset):
         input_ids = encoding.input_ids.squeeze()
         loss_mask = (input_ids != self.tokenizer.pad_token_id)
 
-        X = torch.tensor(input_ids[:-1], dtype=torch.long)
-        Y = torch.tensor(input_ids[1:], dtype=torch.long)
-        loss_mask = torch.tensor(loss_mask[1:], dtype=torch.long)
+        X= input_ids[:-1].to(torch.long)
+        Y= input_ids[1:].to(torch.long)
+        loss_mask = loss_mask[1:].to(torch.long)
         return X, Y, loss_mask
 
 
-class SFTDataset(Dataset):
-    def __init__(self, jsonl_path, tokenizer, max_length=1024):
+class SFTDataset(SavableDataset):
+    def __init__(self, data_path, tokenizer, max_length=1024):
         super().__init__()
         self.tokenizer = tokenizer
         self.max_length = max_length
-        self.samples = self.load_data(jsonl_path)
+        self.samples = self.load_data(data_path)
         self.bos_id = tokenizer('<|im_start|>assistant', add_special_tokens=False).input_ids
         self.eos_id = tokenizer('<|im_end|>', add_special_tokens=False).input_ids
+
+    @property
+    def has_custom_loss_mask(self) -> bool:
+        """SFTDataset has a complex, sample-specific mask that must be saved."""
+        return True
 
     def __len__(self):
         return len(self.samples)

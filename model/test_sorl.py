@@ -16,10 +16,11 @@ def test_minimind_with_sorl():
     abstract_vocab_sizes = [50]
     full_vocab_list = [base_vocab_size] + abstract_vocab_sizes
     
-    sorl_model = SorlModelWrapper(
+    sorl_model = SorlModelWrapper.from_scratch(
         config=MiniMindConfig(vocab_size=sum(full_vocab_list)),
         full_vocab_size_list=full_vocab_list,
-        memory_span=5
+        memory_span=5,
+        pad_token_id=0
     )
     print("Successfully initialized MiniMind with SORL wrapper.\n")
 
@@ -44,7 +45,8 @@ def test_minimind_with_sorl():
     print("✅ Forward pass test passed.\n")
 
     # --- 4. Test Denoising ---
-    orig_tokens = torch.tensor([[1, 2, 3, 62, 2, 4, 1, 62, 3, 4, 2, 62]])
+    abstract_pad_token = sorl_model.level_mask_tokens[1].item()
+    orig_tokens = torch.tensor([[1, 2, 3, abstract_pad_token, 2, 4, 1, abstract_pad_token, 3, 4, 2, abstract_pad_token]])
     levels = infer_level(orig_tokens, sorl_model.vocab_sizes, -1)
     denoise_mask = torch.isin(orig_tokens, sorl_model.level_mask_tokens[1:])
     denoise_levels = levels[denoise_mask]
@@ -72,6 +74,7 @@ def test_qwen_with_sorl():
             model_name_or_path="Qwen/Qwen2-0.5B",
             abstract_vocab_size_list=[128, 64],
             memory_span=5,
+            pad_token_id=0
         )
         print("Successfully loaded Qwen/Qwen2-0.5B with SORL wrapper.\n")
         
@@ -98,8 +101,8 @@ def test_qwen_with_sorl():
         print("✅ Generation test passed.\n")
 
         # --- 4. Test Denoising ---
-        pad_token = qwen_sorl_model.level_mask_tokens[1].item()
-        orig_tokens = torch.tensor([[1, 2, 3, pad_token, 2, 4, 1, pad_token, 3, 4, 2, pad_token]])
+        abstract_pad_token = qwen_sorl_model.level_mask_tokens[1].item()
+        orig_tokens = torch.tensor([[1, 2, 3, abstract_pad_token, 2, 4, 1, abstract_pad_token, 3, 4, 2, abstract_pad_token]])
         levels = infer_level(orig_tokens, qwen_sorl_model.vocab_sizes, -1)
         denoise_mask = torch.isin(orig_tokens, qwen_sorl_model.level_mask_tokens[1:])
         denoise_levels = levels[denoise_mask]
