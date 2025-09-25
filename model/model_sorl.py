@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from typing import Optional, List, Tuple
-from transformers import PreTrainedModel, LogitsProcessor, AutoModelForCausalLM, GenerationMixin
+from transformers import PreTrainedModel, LogitsProcessor, AutoModelForCausalLM, GenerationMixin, Qwen2ForCausalLM, Qwen2Config
 
 from model.model_minimind import MiniMindForCausalLM, MiniMindConfig
 
@@ -49,7 +49,8 @@ def memory_pruning(current_pkv: tuple, levels_cache: torch.Tensor, generated_ids
 from transformers import PretrainedConfig, AutoConfig
 
 SUPPORTED_MODELS = {
-    "minimind": (MiniMindForCausalLM, MiniMindConfig)
+    "minimind": (MiniMindForCausalLM, MiniMindConfig),
+    "qwen2": (Qwen2ForCausalLM, Qwen2Config),
 }
 
 class SorlModelWrapper:
@@ -99,8 +100,9 @@ class SorlModelWrapper:
 
         if attention_mask is not None:
             sorl_causal_mask = sorl_causal_mask & attention_mask.unsqueeze(1).unsqueeze(2)
-
-        return self.model.forward(input_ids=input_ids, attention_mask=sorl_causal_mask, **kwargs)
+        final_attention_mask = sorl_causal_mask.unsqueeze(1)
+        
+        return self.model.forward(input_ids=input_ids, attention_mask=final_attention_mask, **kwargs)
 
 
     def prepare_inputs_for_generation(self, input_ids: torch.LongTensor, past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None, **kwargs):
