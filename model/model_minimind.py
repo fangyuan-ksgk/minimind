@@ -174,9 +174,8 @@ class Attention(nn.Module):
             dropout_p = self.dropout if self.training else 0.0
             attn_mask = None
             if attention_mask is not None:
-                attn_mask = attention_mask.view(bsz, 1, 1, -1).expand(bsz, self.n_local_heads, seq_len, -1)
-                attn_mask = attn_mask.bool() if attention_mask is not None else None
-
+                assert attention_mask.dim() == 3, "attention_mask must be 3-dimensional"
+                attn_mask = attention_mask.view(bsz, 1, seq_len, seq_len).expand(bsz, self.n_local_heads, seq_len, seq_len)
             output = F.scaled_dot_product_attention(xq, xk, xv, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=True)
         else:
             scores = (xq @ xk.transpose(-2, -1)) / math.sqrt(self.head_dim)
