@@ -1,9 +1,13 @@
 import torch
 from typing import Optional, Union
 
-def infer_level(indices: torch.Tensor, vocab_sizes: torch.Tensor, pad_token: int):
-    indices_expanded = indices.unsqueeze(-1)  # [batch_size, seq_len, 1]
+def infer_level(indices: torch.Tensor, vocab_sizes: torch.Tensor, pad_token: Union[int, torch.Tensor]):
+    vocab_sizes = vocab_sizes.to(indices.device)
+    indices_expanded = indices.unsqueeze(-1)
     levels = (indices_expanded < vocab_sizes.cumsum(dim=0)).int().argmax(dim=-1)
+
+    if torch.is_tensor(pad_token):
+        pad_token = pad_token.to(indices.device)
 
     padding_mask = (indices == pad_token)
     final_levels = torch.where(padding_mask, -1, levels.long())

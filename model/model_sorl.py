@@ -165,24 +165,31 @@ class SorlModelWrapper(PreTrainedModel, GenerationMixin):
         abstract_vocab_sizes = self.full_vocab_size_list[1:]
 
         vocab_sizes_list = [base_vocab_size] + [size + 1 for size in abstract_vocab_sizes]
-        self.vocab_sizes = torch.tensor(vocab_sizes_list, device=device)
+        # Register all derived tensors as buffers. This ensures they are moved
+        # to the correct device when you call .to() on the model.
+        self.register_buffer("vocab_sizes", torch.tensor(vocab_sizes_list, device=device))
 
         self.total_vocab_size = self.vocab_sizes.sum()
-        self.level_vocab_ends = self.vocab_sizes.cumsum(dim=0)
-        self.level_vocab_starts = torch.cat([torch.tensor([0], device=device), self.level_vocab_ends[:-1]])
+        self.register_buffer("level_vocab_ends", self.vocab_sizes.cumsum(dim=0))
+        self.register_buffer("level_vocab_starts", torch.cat([torch.tensor([0], device=device), self.level_vocab_ends[:-1]]))
 
         l0_mask_token = torch.tensor([self.pad_token_id], device=device, dtype=torch.long)
         
         if len(self.vocab_sizes) > 1:
             abstract_mask_tokens = (self.level_vocab_ends - 1)[1:]
-            self.level_mask_tokens = torch.cat([l0_mask_token, abstract_mask_tokens])
+            self.register_buffer("level_mask_tokens", torch.cat([l0_mask_token, abstract_mask_tokens]))
         else:
-            self.level_mask_tokens = l0_mask_token
+            self.register_buffer("level_mask_tokens", l0_mask_token)
 
-        self.l0_mask = torch.zeros(self.total_vocab_size, dtype=torch.bool, device=device)
-        self.l0_mask[:self.vocab_sizes[0]] = True
-        self.abs_mask = ~self.l0_mask
-        self.abs_mask[self.level_mask_tokens[1:]] = False
+        l0_mask = torch.zeros(self.total_vocab_size.item(), dtype=torch.bool, device=device)
+        l0_mask[:self.vocab_sizes[0]] = True
+        self.register_buffer("l0_mask", l0_mask)
+        
+        abs_mask = ~self.l0_mask
+        # Note: self.level_mask_tokens may have length 1 if there are no abstract vocabs
+        if len(self.level_mask_tokens) > 1:
+            abs_mask[self.level_mask_tokens[1:]] = False
+        self.register_buffer("abs_mask", abs_mask)
 
     @torch.no_grad()
     def generate(
