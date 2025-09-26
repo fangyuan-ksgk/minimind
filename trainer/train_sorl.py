@@ -14,7 +14,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from model.model_minimind import MiniMindConfig
 from model.model_sorl import SorlModelWrapper
 from dataset.base import MemLoader
-from src.sorl import SORLConfig, sorl_search, compute_loss, evaluate, SearchScheduler, compute_per_token_loss
+from src.sorl import SORLConfig, sorl_search, compute_loss, evaluate, SearchScheduler, compute_per_token_loss, GatedPhaseTransition
 
 warnings.filterwarnings('ignore')
 
@@ -114,11 +114,18 @@ def train(args):
 
         # Optimization
         learning_rate=args.learning_rate,
-        log_interval=args.log_interval
+        log_interval=args.log_interval,
+
+        # Gated phase transition 
+        delta=args.delta,
+        tau=args.tau,
+        p_m=args.p_m,
+        p_c=args.p_c
     )
     
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     search_scheduler = SearchScheduler(sorl_config)
+    gapt = GatedPhaseTransition(sorl_config)
 
     # 4. Initialize Logging (wandb)
     wandb = None
@@ -145,7 +152,13 @@ def train(args):
         # Compute loss
         ppt = compute_per_token_loss(model.module if DDP else model, search_data)
         ssl_loss, abs_loss = compute_loss(search_data, model.module if DDP else model, ppt)
-        total_loss = ssl_loss + abs_loss
+        
+        # GAPT adaptation
+        current_phase = gapt.step(ssl_loss, abs_loss)
+        if current_phase == 1: 
+            total_loss = ssl_loss 
+        else: 
+            total_loss = ssl_loss + abs_loss        
 
         # Optimizer step
         optimizer.zero_grad()
@@ -162,6 +175,7 @@ def train(args):
                     "train/abs_loss": abs_loss.item(),
                     "train/switch_ratio": switch_ratio,
                     "progress/t_search": t_search,
+                    "progress/phase": current_phase,
                 }, step=global_step)
     
     if RANK == 0 and wandb:
@@ -205,6 +219,12 @@ if __name__ == "__main__":
     parser.add_argument("--memory_span", type=int, default=1024, help="Min # of vivid tokens to keep in memory (used for min_keep).")
     parser.add_argument("--use_fade_memory", action="store_true", help="Enable memory fading during training.")
     
+    # GAPT
+    parser.add_argument("--delta", type=float, default=0.01, help="Delta for GAPT.")
+    parser.add_argument("--tau", type=float, default=0.1, help="Tau for GAPT.")
+    parser.add_argument("--p_m", type=int, default=10, help="P_m for GAPT.")
+    parser.add_argument("--p_c", type=int, default=10, help="P_c for GAPT.")
+
     # Logging
     parser.add_argument("--log_interval", type=int, default=100)
     parser.add_argument("--use_wandb", action="store_true")

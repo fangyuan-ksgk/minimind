@@ -71,6 +71,13 @@ class SORLConfig:
     learning_rate: float = 1e-3
     log_interval: int = 100
 
+    # GAPT
+    delta: float = 0.01
+    tau: float = 0.1
+    p_m: int = 10
+    p_c: int = 10
+
+
 
 # Placeholder addition function (for parallel search & training)
 # -----------------------------------------------------------------------------------------------------
@@ -372,3 +379,64 @@ class SearchScheduler:
             # Apply smoothing to avoid abrupt changes
             self.memory_span = max(int(0.7 * self.memory_span + 0.3 * new_memory_span), self.min_memory_span)
         return int(self.t_search)
+
+
+# Phase change regulator
+class GatedPhaseTransition:
+    """
+    Gated Phase Transition (GAPT) : https://arxiv.org/pdf/2505.08727
+    """
+    def __init__(self, delta: float, tau: float, p_m: int, p_c: int):
+
+        # Hyperparameters
+        self.delta = delta
+        self.tau = tau
+        self.p_m = p_m
+        self.p_c = p_c
+
+        # State
+        self.phi = 1  # 1 for memorization, 2 for compression
+        self.s_m = 0
+        self.s_c = 0
+        self.E_min = float('inf')
+        self.abs_loss_min = float('inf')
+
+    def step(self, ssl_loss: float, abs_loss: float):
+
+        L_ce = ssl_loss
+
+        delta_E = self.E_min - L_ce
+        self.E_min = min(self.E_min, L_ce)
+
+        if self.phi == 1:  # Memorization phase
+            if delta_E > self.delta:
+                self.s_m = 0
+            else:
+                self.s_m += 1
+            
+            if self.s_m >= self.p_m:
+                self.phi = 2
+                self.s_c = 0
+                self.E_min = float('inf')  # Reset for the new phase
+                self.abs_loss_min = float('inf')
+
+        elif self.phi == 2:  # Compression phase
+            # Condition 1: SSL loss spikes
+            if self.E_min != float('inf') and L_ce > self.E_min * (1 + self.tau):
+                self.phi = 1
+                self.s_m = 0
+            else:
+                # Condition 2: Abstraction loss plateaus
+                delta_M = self.abs_loss_min - abs_loss
+                self.abs_loss_min = min(self.abs_loss_min, abs_loss)
+
+                if delta_M > self.delta:
+                    self.s_c = 0
+                else:
+                    self.s_c += 1
+                
+                if self.s_c >= self.p_c:
+                    self.phi = 1
+                    self.s_m = 0
+        
+        return self.phi 

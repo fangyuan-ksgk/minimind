@@ -9,7 +9,7 @@
 # --- Common Parameters ---
 TRAIN_ITERATIONS=15000
 BATCH_SIZE=8
-MAX_T_SEARCH=128
+MAX_T_SEARCH=128 # max_len // K = 128 // 8 = 128 this is correct
 WANDB_PROJECT="SORL-Overnight-Deep-Dive"
 # --- FIX: Define separate memory spans for fading vs. non-fading experiments ---
 # For non-fading runs, this sets the base memory span.
