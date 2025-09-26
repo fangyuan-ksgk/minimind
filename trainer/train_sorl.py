@@ -212,7 +212,7 @@ if __name__ == "__main__":
     parser.add_argument("--K", type=int, default=8, help="Rhythmic stride for abstraction.")
     parser.add_argument("--denoise_steps", type=int, default=4, help="Steps for chunk-wise denoising.")
     parser.add_argument("--curriculum_ratio", type=float, default=0.6, help="Ratio of curriculum iterations for t_search.")
-    parser.add_argument("--max_t_search", type=int, default=1024, help="Max number of abstract timestamps to search within.")
+    parser.add_argument("--max_t_search", type=int, default=32, help="Max number of abstract timestamps to search within.")
     
     # Placeholder types
     parser.add_argument("--use_rhythmic_placeholders", action=argparse.BooleanOptionalAction, default=True)
@@ -220,7 +220,7 @@ if __name__ == "__main__":
     parser.add_argument("--abstract_budget", type=int, default=5, help="Max number of spiky abstractions allowed.")
 
     # Memory fading
-    parser.add_argument("--memory_span", type=int, default=1024, help="Min # of vivid tokens to keep in memory (used for min_keep).")
+    parser.add_argument("--memory_span", type=int, default=256, help="Min # of vivid tokens to keep in memory (used for min_keep).")
     parser.add_argument("--use_fade_memory", action="store_true", help="Enable memory fading during training.")
     
     # GAPT
