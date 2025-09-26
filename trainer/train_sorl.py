@@ -126,7 +126,7 @@ def train(args):
     
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     search_scheduler = SearchScheduler(sorl_config)
-    gapt = GatedPhaseTransition(sorl_config)
+    gapt = GatedPhaseTransition(sorl_config.delta, sorl_config.tau, sorl_config.p_m, sorl_config.p_c)
 
     # 4. Initialize Logging (wandb)
     wandb = None
