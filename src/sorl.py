@@ -72,6 +72,7 @@ class SORLConfig:
     log_interval: int = 100
 
     # GAPT
+    default_phase: Optional[int] = None # default phase for GAPT | when used, GAPT is disabled
     delta: float = 0.01
     tau: float = 0.1
     p_m: int = 10

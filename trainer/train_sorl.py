@@ -117,6 +117,7 @@ def train(args):
         log_interval=args.log_interval,
 
         # Gated phase transition 
+        default_phase=args.default_phase,
         delta=args.delta,
         tau=args.tau,
         p_m=args.p_m,
@@ -155,10 +156,13 @@ def train(args):
         
         # GAPT adaptation
         current_phase = gapt.step(ssl_loss, abs_loss)
+        if sorl_config.default_phase is not None:
+            current_phase = sorl_config.default_phase # i'd like to see the "noisy" affect of abstraction
+             
         if current_phase == 1: 
-            total_loss = ssl_loss 
+            total_loss = ssl_loss  # memorization
         else: 
-            total_loss = ssl_loss + abs_loss        
+            total_loss = ssl_loss + abs_loss   # abstraction   
 
         # Optimizer step
         optimizer.zero_grad()
@@ -220,6 +224,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_fade_memory", action="store_true", help="Enable memory fading during training.")
     
     # GAPT
+    parser.add_argument("--default_phase", type=int, default=None, help="Default phase for GAPT.")
     parser.add_argument("--delta", type=float, default=0.01, help="Delta for GAPT.")
     parser.add_argument("--tau", type=float, default=0.1, help="Tau for GAPT.")
     parser.add_argument("--p_m", type=int, default=10, help="P_m for GAPT.")
