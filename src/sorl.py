@@ -57,6 +57,7 @@ class SORLConfig:
     max_seq_len: int = 1024 # max sequence length for training data, useful for memory fading
     use_fade_memory: bool = False # whether to use memory fading
     min_keep: int = 1024 # default to same value as max_length
+    use_compression_mask: bool = True # whether to use compression mask
 
     # dataset specific
     train_dataset_path: Optional[str] = None
@@ -364,13 +365,15 @@ class SearchScheduler:
             self.t_delta = self.max_ts / self.curriculum_iterations
         else:
             self.t_delta = 0
+        self.drop_ratio_delta = 1.0 / self.curriculum_iterations # static curriculum till full compression
         self.t_search = 0 
+        self.drop_ratio = 0.0
 
         # memory fading experiment || gradually decrease 't_keep' at the later half of training
         self.use_fade_memory = sorl_config.use_fade_memory
         self.max_memory_span = sorl_config.max_seq_len
         self.min_memory_span = sorl_config.min_keep
-
+        self.use_compression_mask = sorl_config.use_compression_mask
         self.memory_span = self.max_memory_span
 
     def step(self): 
@@ -379,7 +382,9 @@ class SearchScheduler:
             new_memory_span = max(self.max_memory_span - (self.t_search * self.K), self.min_memory_span)
             # Apply smoothing to avoid abrupt changes
             self.memory_span = max(int(0.7 * self.memory_span + 0.3 * new_memory_span), self.min_memory_span)
-        return int(self.t_search)
+        if self.use_compression_mask:
+            self.drop_ratio = min(self.drop_ratio + self.drop_ratio_delta, 1.0)
+        return int(self.t_search), self.drop_ratio
 
 
 # Phase change regulator

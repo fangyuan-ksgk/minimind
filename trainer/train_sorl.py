@@ -100,6 +100,7 @@ def train(args):
         # Curriculum and Memory
         curriculum_ratio=args.curriculum_ratio,
         use_fade_memory=args.use_fade_memory,
+        use_compression_mask=args.use_compression_mask,
         min_keep=args.memory_span,
         max_seq_len=train_loader.max_length,
         
@@ -142,8 +143,10 @@ def train(args):
         if args.temperature_flip:
             sorl_config.temperature = args.temperature if i % 2 != 0 else 0.0
 
-        t_search = search_scheduler.step()
+        t_search, drop_ratio = search_scheduler.step()
         sorl_config.max_t_search = t_search
+        model_instance = model.module if DDP else model
+        model_instance.drop_ratio = drop_ratio
         
         # Get data and perform SORL search
         data, _ = train_loader.get_batch(args.batch_size)
@@ -222,6 +225,7 @@ if __name__ == "__main__":
     # Memory fading
     parser.add_argument("--memory_span", type=int, default=256, help="Min # of vivid tokens to keep in memory (used for min_keep).")
     parser.add_argument("--use_fade_memory", action="store_true", help="Enable memory fading during training.")
+    parser.add_argument("--use_compression_mask", action="store_true", help="Enable compression mask during training.")
     
     # GAPT
     parser.add_argument("--default_phase", type=int, default=None, help="Default phase for GAPT.")

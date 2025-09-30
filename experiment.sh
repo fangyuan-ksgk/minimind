@@ -66,4 +66,21 @@ python trainer/train_sorl.py \
     --max_t_search $MAX_T_SEARCH --temperature 0.5 --temperature_flip --use_fade_memory --no-use_spike_placeholders \
     --use_wandb --wandb_project $WANDB_PROJECT --wandb_run_name "5.3-fademem-aggressive-temp0.5-flip"
 
+# --- Group 6: Memory Compression Mask Experiments ---
+# Goal: Evaluate the new dynamic memory compression mask with GAPT, without memory fading.
+
+echo "--- Starting Exp 6.1: GAPT + CompressionMask ---"
+python trainer/train_sorl.py \
+    --train_iterations $TRAIN_ITERATIONS --batch_size $BATCH_SIZE --memory_span $MEMORY_SPAN_BASE \
+    --max_t_search $MAX_T_SEARCH --temperature 1.0 --no-use_spike_placeholders \
+    --use_compression_mask \
+    --use_wandb --wandb_project $WANDB_PROJECT --wandb_run_name "6.1-gapt-compression-temp1.0"
+
+echo "--- Starting Exp 6.2: GAPT + CompressionMask + Temp Flip ---"
+python trainer/train_sorl.py \
+    --train_iterations $TRAIN_ITERATIONS --batch_size $BATCH_SIZE --memory_span $MEMORY_SPAN_BASE \
+    --max_t_search $MAX_T_SEARCH --temperature 0.5 --temperature_flip --no-use_spike_placeholders \
+    --use_compression_mask \
+    --use_wandb --wandb_project $WANDB_PROJECT --wandb_run_name "6.2-gapt-compression-temp0.5-flip"
+
 echo "--- All experiments complete. ---"
