@@ -23,6 +23,36 @@ def infer_level(indices: torch.Tensor, vocab_sizes: torch.Tensor, pad_token: int
     final_levels = torch.where(padding_mask, -1, levels.long())
     return final_levels
 
+def compute_attn_mask(input_ids, vocab_sizes, memory_span, drop_ratio=0.3):
+    """
+    Computes the dynamic attention mask for SORL, including memory compression.
+    This function encapsulates the logic from the model's forward pass.
+    """
+    batch_size, seq_len = input_ids.shape
+    device = input_ids.device
+
+    causal_mask = torch.tril(torch.ones((seq_len, seq_len), device=device, dtype=torch.bool))
+
+    levels = infer_level(input_ids, vocab_sizes, -1) # Shape: [B, S]
+    
+    is_abs = (levels > 0)
+    chunk_ids = is_abs.cumsum(dim=1) - is_abs.int() # Shape: [B, S]
+    memory_compression_mask = ~(
+        (chunk_ids.unsqueeze(1) < chunk_ids.unsqueeze(2))  # previous chunks
+        & (~is_abs).unsqueeze(1)                           # trajectory keys
+    )
+
+    keep = torch.rand_like(memory_compression_mask, dtype=torch.float32, device=device) <= (1-drop_ratio)
+    memory_compression_mask = memory_compression_mask | keep
+
+    positions = torch.arange(seq_len, device=device)
+    is_recent = positions[:, None] >= positions[None, :] - memory_span
+    distant_memory_mask = is_recent.unsqueeze(0) | is_abs.unsqueeze(1)
+
+    combined_mask = causal_mask.unsqueeze(0) & distant_memory_mask & memory_compression_mask
+
+    return combined_mask
+
 def memory_pruning(current_pkv, levels_cache: torch.Tensor, generated_ids: torch.Tensor, memory_span: int):
     """
     Prunes the KV cache, levels cache, and generated IDs based on a memory span and token abstraction level.
@@ -91,17 +121,19 @@ class SorlModelWrapper(PreTrainedModel, GenerationMixin):
         
         self.model = ModelClass(config)
         self.memory_span = None
+        self.drop_ratio = None
         self.full_vocab_size_list = None
         self.pad_token_id = None
     
     @classmethod
-    def from_pretrained(cls, model_name_or_path: str, abstract_vocab_size_list: List[int], memory_span: int, pad_token_id: int, **kwargs) -> "SorlModelWrapper":
+    def from_pretrained(cls, model_name_or_path: str, abstract_vocab_size_list: List[int], memory_span: int, pad_token_id: int, drop_ratio: float = 0.3, **kwargs) -> "SorlModelWrapper":
         config = AutoConfig.from_pretrained(model_name_or_path, **kwargs)
         wrapper = cls(config)
         wrapper.model = wrapper.model.__class__.from_pretrained(model_name_or_path, **kwargs)
 
         wrapper.memory_span = memory_span
         wrapper.pad_token_id = pad_token_id
+        wrapper.drop_ratio = drop_ratio
         base_vocab_size = config.vocab_size
         wrapper.full_vocab_size_list = [base_vocab_size] + abstract_vocab_size_list
         wrapper._setup_vocabulary()
@@ -115,12 +147,13 @@ class SorlModelWrapper(PreTrainedModel, GenerationMixin):
         return wrapper
     
     @classmethod
-    def from_scratch(cls, config: PretrainedConfig, full_vocab_size_list: List[int], memory_span: int, pad_token_id: int) -> "SorlModelWrapper":
+    def from_scratch(cls, config: PretrainedConfig, full_vocab_size_list: List[int], memory_span: int, pad_token_id: int, drop_ratio: float = 0.3) -> "SorlModelWrapper":
         """A custom initializer for creating a SORL model from scratch."""
         wrapper = cls(config)
         wrapper.memory_span = memory_span
         wrapper.pad_token_id = pad_token_id
         wrapper.full_vocab_size_list = full_vocab_size_list
+        wrapper.drop_ratio = drop_ratio
         wrapper._setup_vocabulary()
         
         new_total_vocab_size = wrapper.total_vocab_size.item()
@@ -129,17 +162,8 @@ class SorlModelWrapper(PreTrainedModel, GenerationMixin):
         return wrapper
 
     def forward(self, input_ids, attention_mask=None, **kwargs):
-        batch_size, seq_len = input_ids.shape
-        device = input_ids.device
-
-        causal_mask = torch.tril(torch.ones((seq_len, seq_len), device=device, dtype=torch.bool))
-
-        levels = infer_level(input_ids, self.vocab_sizes, -1)
-        q_pos = torch.arange(seq_len, device=device).view(-1, 1)
-        k_pos = torch.arange(seq_len, device=device).view(1, -1)
-        is_recent = q_pos >= (k_pos - self.memory_span)
-        is_high_level = (levels > 0).unsqueeze(1)
-        sorl_causal_mask = causal_mask.unsqueeze(0) & (is_recent.unsqueeze(0) | is_high_level)
+        
+        sorl_causal_mask = compute_attn_mask(input_ids, self.vocab_sizes, self.memory_span, drop_ratio=self.drop_ratio)
 
         if attention_mask is not None:
             sorl_causal_mask = sorl_causal_mask & attention_mask.unsqueeze(1).unsqueeze(2)

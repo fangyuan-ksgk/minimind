@@ -20,7 +20,8 @@ def test_minimind_with_sorl():
         config=MiniMindConfig(vocab_size=sum(full_vocab_list)),
         full_vocab_size_list=full_vocab_list,
         memory_span=5,
-        pad_token_id=0
+        pad_token_id=0,
+        drop_ratio=0.3
     )
     print("Successfully initialized MiniMind with SORL wrapper.\n")
 
@@ -74,7 +75,8 @@ def test_qwen_with_sorl():
             model_name_or_path="Qwen/Qwen2-0.5B",
             abstract_vocab_size_list=[128, 64],
             memory_span=5,
-            pad_token_id=0
+            pad_token_id=0,
+            drop_ratio=0.3
         )
         print("Successfully loaded Qwen/Qwen2-0.5B with SORL wrapper.\n")
         
@@ -116,6 +118,10 @@ def test_qwen_with_sorl():
     except Exception as e:
         print(f"\nCould not run Qwen test. This may be due to memory or network issues.")
         print(f"Error: {e}")
+
+
+
+
 
 
 if __name__ == "__main__":
