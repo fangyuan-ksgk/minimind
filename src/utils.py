@@ -146,7 +146,6 @@ def insert_tokens(
 
     return new_tokens
 
-
 def group_argmax(values: torch.Tensor, indices: torch.Tensor) -> torch.Tensor:
 
     unique_groups, group_indices = torch.unique(indices, return_inverse=True)
@@ -160,7 +159,6 @@ def group_argmax(values: torch.Tensor, indices: torch.Tensor) -> torch.Tensor:
     indices_argmax = max_vals.argmax(dim=1)
 
     return indices_argmax
-
 
 def group_mean(values: torch.Tensor, indices: torch.Tensor):
 
@@ -184,6 +182,11 @@ def group_mean(values: torch.Tensor, indices: torch.Tensor):
 
     return output
 
+def group_min(values: torch.Tensor, indices: torch.Tensor) -> torch.Tensor:
+    unique_groups, group_indices = torch.unique(indices, return_inverse=True)
+    min_vals = torch.full_like(unique_groups, float('inf'), dtype=values.dtype)
+    return min_vals.scatter_reduce_(0, group_indices, values, reduce="amin", include_self=False)
+
 def compute_switch_ratio(idx_max: torch.Tensor, n_greedy_samples: int):
     n_switched = (idx_max >= n_greedy_samples).sum().item()
     switch_ratio = n_switched / n_greedy_samples
@@ -200,4 +203,3 @@ def combine_rollout(greedy_data: torch.Tensor, greedy_data_idx: torch.Tensor, se
     combined_data = torch.cat([greedy_padded, search_padded], dim=0)
     combined_data_idx = torch.cat([greedy_data_idx, search_data_idx], dim=0)
     return combined_data, combined_data_idx
-
