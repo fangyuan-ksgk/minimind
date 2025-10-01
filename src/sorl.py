@@ -207,7 +207,7 @@ def heuristic_rollout(data: torch.Tensor, model: SorlModelWrapper, l: int, n: in
     return repeat_data, repeat_data_idx
 
 
-def sorl_search(data: torch.Tensor, model: SorlModelWrapper, config: SORLConfig): 
+def sorl_search(data: torch.Tensor, loss_mask: torch.Tensor,model: SorlModelWrapper, config: SORLConfig): 
 
     # greedy-involved rollout
     assert config.n > 1, "n must be greater than 1"
@@ -228,8 +228,13 @@ def sorl_search(data: torch.Tensor, model: SorlModelWrapper, config: SORLConfig)
     # select best for each sample idx
     # (TBD). picking the sequence with lowest perplexity is a brute-force selection gadget
     #        a more careful scoring / reward is needed, info-gain is a good candidate
-    reward = ppt.mean(axis=1)
-    idx_max = group_argmax(reward, combined_data_idx)
+
+    padded_loss_mask = torch.nn.functional.pad(loss_mask, (0, combined_data.size(1) - loss_mask.size(1)), value=0)
+    broadcasted_mask = padded_loss_mask[combined_data_idx][:, 1:].bool()
+    masked_ppt = (ppt * broadcasted_mask).sum(dim=1) / broadcasted_mask.sum(dim=1).clamp(min=1)
+
+    reward = - masked_ppt
+    idx_max = group_argmax(reward, combined_data_idx) # this is a bug... we want lowest perplexity sample ...
     best_data = combined_data[idx_max]
 
     switch_ratio = compute_switch_ratio(idx_max, data.size(0))
