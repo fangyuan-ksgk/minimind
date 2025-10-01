@@ -33,7 +33,7 @@ class SavableDataset(Dataset):
             f.write(header.tobytes())
             
             for i in tqdm.tqdm(range(len(self)), desc="Saving to binary file"):
-                X, _, loss_mask = self[i]
+                X, loss_mask = self[i]
                 seq = X.numpy().astype(np.int32)
                 
                 f.write(np.int32(len(seq)).tobytes())

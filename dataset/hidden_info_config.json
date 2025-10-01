@@ -1,0 +1,4 @@
+{
+  "max_length": 64,
+  "pad_token_id": 0
+}
