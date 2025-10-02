@@ -19,7 +19,7 @@ class HiddenInfoDataset(SavableDataset):
         num_samples: int,
         abstract_token_id: int,
         max_length: int = 64,
-        min_digits: int = 3,
+        min_digits: int = 2,
         max_digits: int = 8,
     ):
         self.tokenizer = tokenizer
@@ -39,11 +39,10 @@ class HiddenInfoDataset(SavableDataset):
         print(f"Generating {self.num_samples} samples...")
         samples = []
         for _ in tqdm.tqdm(range(self.num_samples), desc="Generating samples"):
-            len1 = random.randint(self.min_digits, self.max_digits)
-            len2 = random.randint(self.min_digits, self.max_digits)
-            num1 = "".join([str(random.randint(0, 9)) for _ in range(len1)])
-            num2 = "".join([str(random.randint(0, 9)) for _ in range(len2)])
-            samples.append(f"{num1}={num2}")
+            _len = random.randint(self.min_digits, self.max_digits)
+            num = "".join([str(random.randint(0, 9)) for _ in range(_len)])
+            num = str(int(num))
+            samples.append(f"{num}={num}")
         return samples
 
     @property
@@ -64,7 +63,7 @@ class HiddenInfoDataset(SavableDataset):
 
         seq_len = len(tokens)
         loss_mask = torch.zeros(seq_len, dtype=torch.long)
-        loss_mask[equals_idx + 2:] = 1
+        loss_mask[equals_idx + 1:] = 1
 
         tokens = tokens[:self.max_length]
         loss_mask = loss_mask[:self.max_length]

@@ -5,10 +5,10 @@ def main():
     # --- Configuration ---
     TOKENIZER_PATH = "model/"
     OUTPUT_FILE = "dataset/hidden_info.bin"
-    NUM_SAMPLES = 5000
+    NUM_SAMPLES = 20
     MAX_LENGTH = 64
-    MIN_DIGITS = 3
-    MAX_DIGITS = 8
+    MIN_DIGITS = 1
+    MAX_DIGITS = 1
 
     # --- Initialization ---
     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH)

@@ -207,7 +207,7 @@ def heuristic_rollout(data: torch.Tensor, model: SorlModelWrapper, l: int, n: in
     return repeat_data, repeat_data_idx
 
 
-def sorl_search(data: torch.Tensor, loss_mask: torch.Tensor,model: SorlModelWrapper, config: SORLConfig): 
+def sorl_search(data: torch.Tensor, loss_mask: Optional[torch.Tensor],model: SorlModelWrapper, config: SORLConfig): 
 
     # greedy-involved rollout
     assert config.n > 1, "n must be greater than 1"
@@ -240,6 +240,23 @@ def sorl_search(data: torch.Tensor, loss_mask: torch.Tensor,model: SorlModelWrap
     switch_ratio = compute_switch_ratio(idx_max, data.size(0))
 
     return best_data, switch_ratio
+
+def _get_per_level_tensors(data: torch.Tensor, model: SorlModelWrapper, tensor_to_distribute: torch.Tensor) -> dict:
+    """
+    Separates a tensor (like ppt or -ppt for log_probs) into a dictionary keyed by level.
+    """
+    levels = infer_level(data, model.vocab_sizes, model.level_mask_tokens[0])
+    per_level_tensors = {}
+    
+    # Ensure all levels are present in the dict, even if with None
+    for l in range(len(model.vocab_sizes)):
+        level_mask = (levels[:, 1:] == l)
+        if level_mask.any():
+            per_level_tensors[l] = tensor_to_distribute[level_mask]
+        else:
+            per_level_tensors[l] = None
+            
+    return per_level_tensors
 
 # loss computation (level-0 is trajectory loss, level >= 1 is abstract loss)
 # ------------------------------------------------------------------------------------------------
