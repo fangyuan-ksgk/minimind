@@ -23,7 +23,7 @@ def infer_level(indices: torch.Tensor, vocab_sizes: torch.Tensor, pad_token: int
     final_levels = torch.where(padding_mask, -1, levels.long())
     return final_levels
 
-def compute_attn_mask(input_ids, vocab_sizes, memory_span, drop_ratio=0.3):
+def compute_attn_mask(input_ids, vocab_sizes, memory_span, pad_token_id, drop_ratio=0.3):
     """
     Computes the dynamic attention mask for SORL, including memory compression.
     This function encapsulates the logic from the model's forward pass.
@@ -33,17 +33,14 @@ def compute_attn_mask(input_ids, vocab_sizes, memory_span, drop_ratio=0.3):
 
     causal_mask = torch.tril(torch.ones((seq_len, seq_len), device=device, dtype=torch.bool))
 
-    levels = infer_level(input_ids, vocab_sizes, -1) # Shape: [B, S]
+    levels = infer_level(input_ids, vocab_sizes, pad_token_id) # Shape: [B, S]
     
     is_abs = (levels > 0)
-    chunk_ids = is_abs.cumsum(dim=1) - is_abs.int() # Shape: [B, S]
-    memory_compression_mask = ~(
-        (chunk_ids.unsqueeze(1) < chunk_ids.unsqueeze(2))  # previous chunks
-        & (~is_abs).unsqueeze(1)                           # trajectory keys
-    )
-
-    keep = torch.rand_like(memory_compression_mask, dtype=torch.float32, device=device) <= (1-drop_ratio)
-    memory_compression_mask = memory_compression_mask | keep
+    chunk_ids = is_abs.cumsum(dim=1) - is_abs.int()
+    
+    potential_drop_locations = (chunk_ids.unsqueeze(1) < chunk_ids.unsqueeze(2)) & (~is_abs).unsqueeze(1)
+    should_drop = torch.rand_like(potential_drop_locations, dtype=torch.float32) < drop_ratio
+    memory_compression_mask = ~(potential_drop_locations & should_drop)
 
     positions = torch.arange(seq_len, device=device)
     is_recent = positions[:, None] >= positions[None, :] - memory_span
@@ -163,7 +160,7 @@ class SorlModelWrapper(PreTrainedModel, GenerationMixin):
 
     def forward(self, input_ids, attention_mask=None, **kwargs):
         
-        sorl_causal_mask = compute_attn_mask(input_ids, self.vocab_sizes, self.memory_span, drop_ratio=self.drop_ratio)
+        sorl_causal_mask = compute_attn_mask(input_ids, self.vocab_sizes, self.memory_span, self.pad_token_id, drop_ratio=self.drop_ratio)
 
         if attention_mask is not None:
             sorl_causal_mask = sorl_causal_mask & attention_mask.unsqueeze(1).unsqueeze(2)

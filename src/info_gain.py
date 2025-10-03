@@ -2,6 +2,9 @@
 # Source: https://github.com/NVlabs/RLP?tab=readme-ov-file#paper
 
 # InfoGain(a) = Policy(x_{i} | x_{<i}, a) - EMA(Policy(x_{i} | x_{<i}))
+# (1). GRPO loss + normal reward is 6x worse than SoRL. 
+# (2). Adding EMA reference model to-be-tested, but I'm not excited about it, as it complicates implementation 
+#      and is unlikely to be 6x better etc. SoRL is simpler. 
 
 from copy import deepcopy
 import torch

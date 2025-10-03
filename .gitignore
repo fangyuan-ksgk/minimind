@@ -1,5 +1,6 @@
 /model/__pycache__
 # /dataset
+*.json
 *.jsonl
 *.bin
 /out

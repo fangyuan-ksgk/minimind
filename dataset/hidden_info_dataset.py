@@ -40,8 +40,9 @@ class HiddenInfoDataset(SavableDataset):
         samples = []
         for _ in tqdm.tqdm(range(self.num_samples), desc="Generating samples"):
             _len = random.randint(self.min_digits, self.max_digits)
-            num = "".join([str(random.randint(0, 9)) for _ in range(_len)])
-            num = str(int(num))
+            min_val = 10**(_len - 1) if _len > 1 else 0
+            max_val = (10**_len) - 1
+            num = random.randint(min_val, max_val)
             samples.append(f"{num}={num}")
         return samples
 

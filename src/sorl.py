@@ -234,6 +234,7 @@ def sorl_search(data: torch.Tensor, loss_mask: Optional[torch.Tensor],model: Sor
     masked_ppt = (ppt * broadcasted_mask).sum(dim=1) / broadcasted_mask.sum(dim=1).clamp(min=1)
 
     reward = - masked_ppt
+    # reward = masked_ppt
     idx_max = group_argmax(reward, combined_data_idx) # this is a bug... we want lowest perplexity sample ...
     best_data = combined_data[idx_max]
 
@@ -276,7 +277,7 @@ def compute_vocab_utilization_rate(data: torch.Tensor, model: SorlModelWrapper):
     return data[(data >= si) & (data < ei)].unique().size(0) / (ei - si).item()
 
 def evaluate(data: torch.Tensor, loss_mask: torch.Tensor, config: SORLConfig, model: SorlModelWrapper, 
-                       search_temperature: float = 100., search_n: int = 10): 
+                       search_temperature: float = 100., search_n: int = 10, ref_model: Optional[SorlModelWrapper] = None): 
 
     assert config.n > 1, "n must be greater than 1"
     with torch.no_grad(): 
@@ -290,8 +291,10 @@ def evaluate(data: torch.Tensor, loss_mask: torch.Tensor, config: SORLConfig, mo
 
     combined_data, combined_data_idx = combine_rollout(greedy_data, greedy_data_idx, search_data, search_data_idx, model.level_mask_tokens[0])
 
+    ref_model = ref_model if ref_model is not None else model # tentative, ready for EMA
     with torch.no_grad():
         ppt = compute_per_token_loss(model, combined_data)
+        ppt_no_abs = compute_per_token_loss(ref_model, data)
 
     # Broadcast and mask the loss
     padded_loss_mask = torch.nn.functional.pad(loss_mask, (0, combined_data.size(1) - loss_mask.size(1)), value=0)
@@ -309,7 +312,11 @@ def evaluate(data: torch.Tensor, loss_mask: torch.Tensor, config: SORLConfig, mo
     avg_total_losses = torch.tensor([group_mean(mean_losses, combined_data_idx).get(i, 0) for i in range(data.shape[0])], device=model.device)
     best_advantage = (avg_total_losses - best_losses) / avg_total_losses.clamp(min=1e-8)
 
-    return 100 * greedy_advantage.mean(), 100 * best_advantage.mean()
+    # Advantage 3: Greedy vs. Abstraction-Free
+    abstract_free_losses = (ppt_no_abs * loss_mask[:, 1:]).mean(axis=1)
+    greedy_info_gain = (abstract_free_losses - greedy_losses) / abstract_free_losses.clamp(min=1e-8)
+
+    return 100 * greedy_advantage.mean(), 100 * best_advantage.mean(), 100 * greedy_info_gain.mean(), greedy_losses.mean(), abstract_free_losses.mean()
 
 
 class SearchScheduler: 
