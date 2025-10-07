@@ -45,7 +45,7 @@ class SavableDataset(Dataset):
         
         config_path = filepath.replace('.bin', '_config.json')
         with open(config_path, 'w') as f:
-            config = {'max_length': self.max_length, 'pad_token_id': self.tokenizer.pad_token_id}
+            config = {'max_length': self.max_length, 'pad_token_id': self.tokenizer.pad_token_id, 'tokenizer_path': self.tokenizer.name_or_path}
             json.dump(config, f, indent=2)
         print("Save complete.")
 
@@ -77,6 +77,7 @@ class MemLoader:
             config = json.load(f)
         self.max_length = config['max_length']
         self.pad_token = config['pad_token_id']
+        self.tokenizer_path = config['tokenizer_path']
 
     def _build_index(self):
         self.index = np.zeros((self.total_sequences, 2), dtype=np.int64)

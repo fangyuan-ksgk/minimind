@@ -265,9 +265,14 @@ def compute_loss(data: torch.Tensor, model: SorlModelWrapper, ppt: torch.Tensor,
     # loss mask is for trajectory token only
     levels = infer_level(data, model.vocab_sizes, model.level_mask_tokens[0])
     level_loss = {l: torch.tensor(0.) for l in range(1, len(model.full_vocab_size_list))}
-    l0_loss = ppt[levels[:, 1:] == 0][loss_mask[:, 1:]].mean() 
+
+    ppt_l0 = ppt[(levels[:, 1:] <= 0)].reshape(ppt.shape[0], -1)
+    ppt_l0 = (ppt_l0 * loss_mask[:, 1:]).sum(dim=1) / loss_mask[:, 1:].sum(dim=1)
+    ppt_l0 = ppt_l0.mean()
+
     level_loss.update(group_mean(ppt, levels[:, 1:]))
-    level_loss[0] = l0_loss
+    level_loss[0] = ppt_l0
+
     return level_loss[0], sum(level_loss[l] for l in level_loss if l > 0)
 
 # Sub-optimal way of evaluating search improvement || We'd like to have "evaluate" function that properly does token-by-token generation

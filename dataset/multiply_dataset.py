@@ -28,7 +28,7 @@ def generate_multiplication_line(num1: int, num2: int, use_cot: bool, reverse_di
     final_answer = fmt(num1 * num2)
     
     if not use_cot:
-        return f"{question} = <answer> {final_answer}"
+        return f"{question} = <answer> {final_answer} <eos>"
     
     partial_products = [int(d) * num2 for d in str(num1)[::-1]]
     cot_parts = []
@@ -46,7 +46,7 @@ def generate_multiplication_line(num1: int, num2: int, use_cot: bool, reverse_di
         summand = fmt(step_product, pad_len)
         cot_parts.append(f"{summand} ({fmt(current_sum, pad_len)})" if i < len(partial_products) - 1 else summand)
     
-    return f"{question} = {' + '.join(cot_parts)} = <answer> {final_answer}"
+    return f"{question} = {' + '.join(cot_parts)} = <answer> {final_answer} <eos>"
 
 
 def extract_answer(text):
@@ -97,6 +97,11 @@ class MultiplyDataset(SavableDataset):
 
         self.answer_mask = answer_mask
 
+    @property
+    def has_custom_loss_mask(self) -> bool:
+        """This dataset generates a custom loss mask."""
+        return True
+
     def __len__(self) -> int:
         return len(self.data)
 
@@ -127,6 +132,3 @@ class MultiplyDataset(SavableDataset):
             text = generate_multiplication_line(num1, num2, use_cot=self.use_cot, reverse_digits=self.reverse_digits)
             samples.append(text)
         return samples
-
-    def __len__(self) -> int:
-        return self.num_samples

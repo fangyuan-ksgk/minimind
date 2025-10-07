@@ -237,7 +237,7 @@ class SorlModelWrapper(PreTrainedModel, GenerationMixin):
             next_token_logits = outputs.logits[:, -1, :]
             current_pkv = outputs.past_key_values
 
-            past_key_values, levels_cache, generated_ids = memory_pruning(current_pkv, levels_cache, generated_ids, 5)
+            past_key_values, levels_cache, generated_ids = memory_pruning(current_pkv, levels_cache, generated_ids, self.memory_span)
 
             if force_abstraction_every_n is not None and (step + 1) % force_abstraction_every_n == 0:
                 next_token_logits.masked_fill_(self.l0_mask, -float("inf"))
