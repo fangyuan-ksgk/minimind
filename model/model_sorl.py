@@ -245,6 +245,9 @@ class SorlModelWrapper(PreTrainedModel, GenerationMixin):
                 next_token_logits.masked_fill_(self.abs_mask, -float("inf"))
 
             if temperature > 0:
+                vocab_size = next_token_logits.shape[-1]
+                top_k = min(top_k, vocab_size)
+
                 probs = F.softmax(next_token_logits / temperature, dim=-1)
                 top_k_probs, top_k_indices = torch.topk(probs, top_k)
                 next_token_id = top_k_indices[0, torch.multinomial(top_k_probs, num_samples=1)[0]]
