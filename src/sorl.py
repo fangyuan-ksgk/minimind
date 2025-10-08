@@ -9,7 +9,7 @@ from torch.nn.utils.rnn import pad_sequence
 from model.model_sorl import SorlModelWrapper
 
 
-def compute_per_token_loss(model: SorlModelWrapper, idx: torch.Tensor) -> torch.Tensor:
+def compute_per_token_loss(model: SorlModelWrapper, idx: torch.Tensor, pad_token_id: Optional[int] = None) -> torch.Tensor:
     """
     Computes per-token loss (negative log-likelihood) using a standard forward pass.
     This replaces the custom `model(idx, target)` call from the original GAT model.
@@ -23,7 +23,7 @@ def compute_per_token_loss(model: SorlModelWrapper, idx: torch.Tensor) -> torch.
     logits_flat = logits.view(-1, logits.size(-1))
     targets_flat = targets.view(-1)
     
-    pad_token_id = model.level_mask_tokens[0].item()
+    pad_token_id = pad_token_id if pad_token_id is not None else model.level_mask_tokens[0].item()
     losses = F.cross_entropy(logits_flat, targets_flat, reduction='none', ignore_index=pad_token_id)
     
     ppt = losses.view(targets.shape)
@@ -329,6 +329,9 @@ class SearchScheduler:
         self.sorl_config = sorl_config
         self.K = sorl_config.K
         self.max_ts = min(sorl_config.max_length // self.K, sorl_config.max_t_search)
+
+        if self.max_ts == 0: 
+            print("- No abstraction allowed")
         
         # t_search curriculum
         t_search_curriculum_iters = int(sorl_config.train_iterations * sorl_config.curriculum_ratio)
