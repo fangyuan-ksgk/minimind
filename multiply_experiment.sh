@@ -14,15 +14,15 @@ for tokenizer_path in "${tokenizer_paths[@]}"; do
     echo "--- Starting experiments for tokenizer: $tokenizer_name ---"
 
     # (A). Generate all dataset variants for the current tokenizer
-    echo "Generating datasets for $tokenizer_name..."
-    python -m dataset.prep_multiply_dataset --tokenizer_path "$tokenizer_path" --num_digits "$num_digits"
-    python -m dataset.prep_multiply_dataset --tokenizer_path "$tokenizer_path" --num_digits "$num_digits" --use_cot
-    python -m dataset.prep_multiply_dataset --tokenizer_path "$tokenizer_path" --num_digits "$num_digits" --reverse
-    python -m dataset.prep_multiply_dataset --tokenizer_path "$tokenizer_path" --num_digits "$num_digits" --reverse --use_cot
-    echo "Dataset generation complete for $tokenizer_name."
+    # echo "Generating datasets for $tokenizer_name..."
+    # python -m dataset.prep_multiply_dataset --tokenizer_path "$tokenizer_path" --num_digits "$num_digits"
+    # python -m dataset.prep_multiply_dataset --tokenizer_path "$tokenizer_path" --num_digits "$num_digits" --use_cot
+    # python -m dataset.prep_multiply_dataset --tokenizer_path "$tokenizer_path" --num_digits "$num_digits" --reverse
+    # python -m dataset.prep_multiply_dataset --tokenizer_path "$tokenizer_path" --num_digits "$num_digits" --reverse --use_cot
+    # echo "Dataset generation complete for $tokenizer_name."
 
     # (B). Train models on the generated datasets
-    data_formats=("" "_cot" "_reverse" "_reverse_cot")
+    data_formats=("_cot" "_reverse_cot")
     model_configs=("2 4" "4 8") # Pairs of "num_hidden_layers num_attention_heads"
 
     for data_format in "${data_formats[@]}"; do
