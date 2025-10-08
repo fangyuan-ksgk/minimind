@@ -76,6 +76,10 @@ def train(args):
         memory_span=args.memory_span,
         pad_token_id=pad_token_id
     ).to(device)
+
+    if torch.cuda.is_available():
+        logger("Compiling the model...")
+        model = torch.compile(model) # Recommended: Let the compiler handle dynamic shapes.
     
     if DDP:
         model = DistributedDataParallel(model, device_ids=[RANK])
