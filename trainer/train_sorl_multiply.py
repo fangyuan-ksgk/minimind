@@ -95,7 +95,7 @@ def train(args):
         use_compression_mask=args.use_compression_mask,
         min_keep=args.memory_span, max_seq_len=train_loader.max_length,
         train_iterations=args.train_iterations,
-        train_batch_size=args.batch_size, val_batch_size=args.batch_size,
+        train_batch_size=args.batch_size, val_batch_size=20,
         max_length=train_loader.max_length,
         default_phase=args.default_phase, delta=args.delta, tau=args.tau,
         p_m=args.p_m, p_c=args.p_c
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     
     # Training Config
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--train_iterations", type=int, default=1000)
+    parser.add_argument("--train_iterations", type=int, default=2000)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--seed", type=int, default=42)
