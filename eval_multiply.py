@@ -109,6 +109,8 @@ def evaluate_on_loader(model, tokenizer, val_loader, num_samples_to_eval=200, ba
     correct_predictions = 0
     total_samples = 0
     
+    log_file = open("eval_log.txt", "w")
+    
     answer_token_id = tokenizer.encode('<answer>', add_special_tokens=False)[0]
     equal_token_id = tokenizer.encode('=', add_special_tokens=False)[0]
 
@@ -139,12 +141,19 @@ def evaluate_on_loader(model, tokenizer, val_loader, num_samples_to_eval=200, ba
                     force_abstraction_every_n=K
 
                 )
+            
+            generated_response = tokenizer.decode(output[0], skip_special_tokens=False)
 
             generated_ids = output[:, query_ids.shape[1]:]
             
             # Use utility functions for parsing and comparison
             generated_answer = _extract_answer_from_ids(generated_ids[0], tokenizer)
             ground_truth_answer = _extract_answer_from_ids(ground_truth_ids[0], tokenizer)
+            
+            log_file.write(f"Generated Response: {generated_response}\n")
+            log_file.write(f"Generated Answer: {generated_answer}\n")
+            log_file.write(f"Ground Truth Answer: {ground_truth_answer}\n")
+            log_file.write("-" * 20 + "\n")
             
             generated_num = _str_to_int(generated_answer)
             ground_truth_num = _str_to_int(ground_truth_answer)
@@ -155,6 +164,7 @@ def evaluate_on_loader(model, tokenizer, val_loader, num_samples_to_eval=200, ba
             total_samples += 1
             pbar.set_postfix({"Accuracy": f"{(correct_predictions / total_samples) * 100:.2f}%"})
 
+    log_file.close()
     accuracy = (correct_predictions / total_samples) * 100 if total_samples > 0 else 0
     top_sim_score = sum(top_sim_score) / len(top_sim_score)
     print("\n--- Evaluation Summary ---")
