@@ -1,7 +1,7 @@
 # Generate Dataset with different tokenizer
 
 digit_tokenizer_path="tokenizer/digit_tokenizer"
-num_digits=3
+num_digits=4
 
 # (1). Train all tokenizers (run once)
 # python -m tokenizer.train_bpe

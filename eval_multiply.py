@@ -15,7 +15,15 @@ except ImportError:
 def _extract_answer_from_ids(token_ids, tokenizer) -> str:
     """Decodes token IDs and extracts the answer before the first EOS token."""
     full_str = tokenizer.decode(token_ids, skip_special_tokens=False)
-    answer_str = full_str.split('<eos>')[0].strip().split('<answer>')[1].strip()
+    before_eos = full_str.split('<eos>')[0].strip()
+    if '<answer>' in before_eos:
+        parts = before_eos.split('<answer>')
+        if len(parts) > 1:
+            answer_str = parts[1].strip()
+        else:
+            answer_str = ""
+    else:
+        answer_str = ""
     return answer_str
 
 def _get_query_and_gt_ids(input_ids, equal_token_id, answer_token_id):
