@@ -40,6 +40,9 @@ def initialize_components(args):
         pad_token_id=pad_token_id
     ).to(args.device)
 
+    if torch.cuda.is_available():
+        model = torch.compile(model)
+
     print(f"Model initialized on {args.device} with {sum(p.numel() for p in model.parameters())/1e6:.2f}M parameters.")
 
     # --- SORL Config and Schedulers ---
