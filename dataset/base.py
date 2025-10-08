@@ -71,6 +71,9 @@ class MemLoader:
         self._build_index()
         self.local_indices = np.array_split(np.arange(self.total_sequences), self.world_size)[self.rank]
 
+    def __len__(self):
+        return len(self.local_indices)
+
     def _load_config(self, filepath):
         config_path = filepath.replace('.bin', '_config.json')
         with open(config_path, 'r') as f:

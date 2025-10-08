@@ -20,6 +20,9 @@ def initialize_components(args):
     tokenizer = AutoTokenizer.from_pretrained(train_loader.tokenizer_path) # data is tokenized
     pad_token_id = tokenizer.pad_token_id
 
+    train_iterations = int(args.epoch * len(train_loader) / args.batch_size)
+    print(f"Running for {args.epoch} epochs, which is {train_iterations} iterations.")
+
     # --- Model ---
     base_vocab_size = len(tokenizer)
     abstract_vocab_sizes = [int(v) for v in args.abstract_vocab_sizes.split(',')]
@@ -65,7 +68,7 @@ def initialize_components(args):
         compression_curriculum_ratio=args.compression_curriculum_ratio,
         min_keep=args.memory_span, 
         max_seq_len=train_loader.max_length,
-        train_iterations=args.train_iterations, 
+        train_iterations=train_iterations, 
         train_batch_size=args.batch_size,
         val_batch_size=args.batch_size,
         learning_rate=args.learning_rate,
@@ -158,6 +161,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--epoch", type=float, default=1.0, help="Number of epochs to train for.")
     
     # --- SORL Config ---
     parser.add_argument("--n_rollout", type=int, default=5)
@@ -182,7 +186,6 @@ if __name__ == "__main__":
     parser.add_argument("--p_m", type=int, default=10)
     parser.add_argument("--p_c", type=int, default=10)
     parser.add_argument("--log_interval", type=int, default=100)
-    parser.add_argument("--train_iterations", type=int, default=2000)
     parser.add_argument("--wandb_project", type=str, default="MiniMind-SORL-Multiply")
     parser.add_argument("--wandb_run_name", type=str, default="sorl-training-run")
 
