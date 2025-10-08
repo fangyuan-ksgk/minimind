@@ -18,6 +18,7 @@ from model.model_minimind import MiniMindConfig
 from model.model_sorl import SorlModelWrapper
 from dataset.base import MemLoader
 from src.sorl import SORLConfig, sorl_search, compute_loss, SearchScheduler, compute_per_token_loss, GatedPhaseTransition, evaluate
+from contextlib import nullcontext
 
 warnings.filterwarnings('ignore')
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -52,6 +53,7 @@ def train(args):
 
     # 1. Initialize Tokenizer and Data Loaders
     device = f"cuda:{RANK}" if DDP else args.device
+    device_type = "cuda" if "cuda" in device else "cpu"
     train_loader = MemLoader(args.train_data_path, device=device, rank=RANK, world_size=WORLD_SIZE)
     val_loader = MemLoader(args.val_data_path, device=device, rank=RANK, world_size=WORLD_SIZE)
     tokenizer = AutoTokenizer.from_pretrained(train_loader.tokenizer_path)
@@ -109,12 +111,15 @@ def train(args):
     search_scheduler = SearchScheduler(sorl_config)
     gapt = GatedPhaseTransition(sorl_config.delta, sorl_config.tau, sorl_config.p_m, sorl_config.p_c)
 
-    # 4. Initialize Logging (wandb)
+    # 4. Initialize Logging (wandb) and Mixed-Precision
     wandb = None
     if args.use_wandb and RANK == 0:
         import wandb
         wandb.init(project=args.wandb_project, name=args.wandb_run_name, config=args)
     
+    scaler = torch.cuda.amp.GradScaler(enabled=(device_type == "cuda"))
+    ctx = nullcontext() if device_type == "cpu" else torch.cuda.amp.autocast()
+
     # --- Training Loop ---
     logger("\n--- Starting training loop ---")
     model.train()
@@ -130,8 +135,9 @@ def train(args):
         with torch.no_grad():
             search_data, switch_ratio = sorl_search(data, loss_mask, model_instance, sorl_config)
             
-        ppt = compute_per_token_loss(model_instance, search_data)
-        ssl_loss, abs_loss = compute_loss(search_data, model_instance, ppt, loss_mask)
+        with ctx:
+            ppt = compute_per_token_loss(model_instance, search_data)
+            ssl_loss, abs_loss = compute_loss(search_data, model_instance, ppt, loss_mask)
         
         current_phase = gapt.step(ssl_loss, abs_loss)
         if sorl_config.default_phase is not None:
@@ -140,8 +146,9 @@ def train(args):
         total_loss = ssl_loss + abs_loss if current_phase == 2 else ssl_loss
         
         optimizer.zero_grad()
-        total_loss.backward()
-        optimizer.step()
+        scaler.scale(total_loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
         
         if RANK == 0:
             print(f"\rIter {global_step+1}/{args.train_iterations} | Loss: {total_loss.item():.4f}", end="")
